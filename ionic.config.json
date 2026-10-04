@@ -1,0 +1,7 @@
+{
+  "name": "meu-caixa",
+  "integrations": {
+    "capacitor": {}
+  },
+  "type": "react-vite"
+}
