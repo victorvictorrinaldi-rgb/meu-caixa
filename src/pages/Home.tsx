@@ -1,10 +1,10 @@
 import {
   IonButton, IonContent, IonHeader, IonInput, IonItem, IonLabel, IonList,
   IonPage, IonSelect, IonSelectOption, IonTitle, IonToolbar, IonIcon, IonProgressBar,
-  IonCard, IonCardContent, IonCardHeader, IonCardTitle, useIonAlert,
+  IonCard, IonCardContent, IonCardHeader, IonCardTitle, useIonAlert, IonSearchbar,
 } from '@ionic/react';
 import { useEffect, useState } from 'react';
-import { chevronBack, chevronForward, close, create } from 'ionicons/icons';
+import { chevronBack, chevronForward, close, create, checkmarkCircle, ellipseOutline } from 'ionicons/icons';
 import { Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 
@@ -17,6 +17,7 @@ type Lancamento = {
   tipo: string;
   categoria?: string;
   data?: string;
+  pago?: boolean;
 };
 
 const CHAVE = 'meu-caixa-lancamentos';
@@ -84,6 +85,8 @@ const Home: React.FC = () => {
   const [mes, setMes] = useState(hoje().slice(0, 7));
   const [meta, setMeta] = useState(carregarMeta);
   const [editandoId, setEditandoId] = useState<number | null>(null);
+  const [busca, setBusca] = useState('');
+const [filtroTipo, setFiltroTipo] = useState('todos');
   const [mostrarAlerta] = useIonAlert();
 
   useEffect(() => {
@@ -113,8 +116,28 @@ const Home: React.FC = () => {
   const saldo = receitas - despesas;
   const limite = parseFloat(meta.replace(',', '.')) || 0;
   const progresso = limite > 0 ? despesas / limite : 0;
+  const despesasDoMes = doMes.filter((l) => l.tipo === 'despesa');
 
-  const ordenada = [...doMes].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+const pendentes = despesasDoMes
+  .filter((l) => !l.pago)
+  .reduce((soma, l) => soma + l.valor, 0);
+
+const pagas = despesasDoMes
+  .filter((l) => l.pago)
+  .reduce((soma, l) => soma + l.valor, 0);
+  const mesAnterior = somarMes(mes, -1);
+
+const despesasAnterior = lista
+  .filter((l) => (l.data || '').startsWith(mesAnterior) && l.tipo === 'despesa')
+  .reduce((soma, l) => soma + l.valor, 0);
+
+const variacao =
+  despesasAnterior > 0 ? ((despesas - despesasAnterior) / despesasAnterior) * 100 : null;
+
+  const ordenada = [...doMes]
+  .filter((l) => l.descricao.toLowerCase().includes(busca.toLowerCase()))
+  .filter((l) => filtroTipo === 'todos' || l.tipo === filtroTipo)
+  .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
 
   const porCategoria: Record<string, number> = {};
   doMes
@@ -159,6 +182,9 @@ const dadosGrafico = {
   const excluir = (id: number) => {
     setLista(lista.filter((l) => l.id !== id));
   };
+  const alternarPago = (id: number) => {
+  setLista(lista.map((l) => (l.id === id ? { ...l, pago: !l.pago } : l)));
+};
 
   const confirmarExclusao = (l: Lancamento) => {
     mostrarAlerta({
@@ -259,6 +285,36 @@ const mudarOrcamento = (cat: string, texto: string) => {
   </IonCardContent>
 </IonCard>
 
+        <IonCard>
+  <IonCardHeader>
+    <IonCardTitle>Comparado a {nomeDoMes(mesAnterior)}</IonCardTitle>
+  </IonCardHeader>
+  <IonCardContent>
+    {variacao === null ? (
+      <p>Sem despesas no mês anterior para comparar.</p>
+    ) : (
+      <>
+        <div
+          style={{
+            fontSize: '1.6rem',
+            fontWeight: 700,
+            color: variacao > 0 ? 'var(--ion-color-danger)' : 'var(--ion-color-success)',
+          }}
+        >
+          {variacao > 0 ? '▲' : variacao < 0 ? '▼' : ''} {Math.round(Math.abs(variacao))}%
+        </div>
+        <p>
+          {variacao > 0
+            ? 'Você gastou mais'
+            : variacao < 0
+            ? 'Você gastou menos'
+            : 'Você gastou o mesmo'}{' '}
+          do que no mês anterior ({formatar(despesasAnterior)}).
+        </p>
+      </>
+    )}
+  </IonCardContent>
+</IonCard>
         <IonCard>
           <IonCardHeader>
             <IonCardTitle>{editandoId !== null ? 'Editar lançamento' : 'Novo lançamento'}</IonCardTitle>
@@ -402,33 +458,69 @@ const mudarOrcamento = (cat: string, texto: string) => {
             <IonCardTitle>Lançamentos</IonCardTitle>
           </IonCardHeader>
           <IonCardContent>
-            {ordenada.length === 0 && <p>Nenhum lançamento neste mês.</p>}
-            <IonList>
+            <IonSearchbar
+  value={busca}
+  placeholder="Buscar pelo nome"
+  onIonInput={(e) => setBusca(e.detail.value ?? '')}
+/>
+
+<IonSelect
+  label="Mostrar"
+  labelPlacement="floating"
+  value={filtroTipo}
+  onIonChange={(e) => setFiltroTipo(e.detail.value)}
+>
+  <IonSelectOption value="todos">Todos</IonSelectOption>
+  <IonSelectOption value="renda-fixa">Renda fixa</IonSelectOption>
+  <IonSelectOption value="renda-extra">Renda extra</IonSelectOption>
+  <IonSelectOption value="despesa">Despesas</IonSelectOption>
+</IonSelect>
+<p>
+  A pagar: <strong>{formatar(pendentes)}</strong> · Já pago: <strong>{formatar(pagas)}</strong>
+</p>
+{ordenada.length === 0 && (
+  <p>
+    {doMes.length === 0
+      ? 'Nenhum lançamento neste mês.'
+      : 'Nenhum lançamento encontrado com esse filtro.'}
+  </p>
+)}            <IonList>
               {ordenada.map((l) => (
                 <IonItem key={l.id}>
-                  <IonLabel>
-                    <h2>{l.descricao}</h2>
-                    <p>
-                      {nomes[l.tipo]}
-                      {l.categoria ? ' · ' + l.categoria : ''}
-                      {l.data ? ' · ' + formatarData(l.data) : ''}
-                    </p>
-                  </IonLabel>
-                  <IonLabel slot="end" color={l.tipo === 'despesa' ? 'danger' : 'success'}>
-                    {l.tipo === 'despesa' ? '−' : '+'} {formatar(l.valor)}
-                  </IonLabel>
-                  <IonButton slot="end" fill="clear" color="medium" onClick={() => editar(l)}>
-                  <IonIcon slot="icon-only" icon={create} />
-                  </IonButton>
-                  <IonButton
-                    slot="end"
-                    fill="clear"
-                    color="medium"
-                    onClick={() => confirmarExclusao(l)}
-                  >
-                    <IonIcon slot="icon-only" icon={close} />
-                  </IonButton>
-                </IonItem>
+  {l.tipo === 'despesa' && (
+    <IonButton
+      slot="start"
+      fill="clear"
+      color={l.pago ? 'success' : 'medium'}
+      onClick={() => alternarPago(l.id)}
+    >
+      <IonIcon slot="icon-only" icon={l.pago ? checkmarkCircle : ellipseOutline} />
+    </IonButton>
+  )}
+  <IonLabel>
+    <h2 style={{ textDecoration: l.pago ? 'line-through' : 'none' }}>{l.descricao}</h2>
+    <p>
+      {nomes[l.tipo]}
+      {l.categoria ? ' · ' + l.categoria : ''}
+      {l.data ? ' · ' + formatarData(l.data) : ''}
+      {l.tipo === 'despesa' ? (l.pago ? ' · Pago' : ' · Pendente') : ''}
+    </p>
+  </IonLabel>
+  <IonLabel slot="end" color={l.tipo === 'despesa' ? 'danger' : 'success'}>
+    {l.tipo === 'despesa' ? '−' : '+'} {formatar(l.valor)}
+  </IonLabel>
+  <IonButton slot="end" fill="clear" color="medium" onClick={() => editar(l)}>
+    <IonIcon slot="icon-only" icon={create} />
+  </IonButton>
+  <IonButton
+    slot="end"
+    fill="clear"
+    color="medium"
+    onClick={() => confirmarExclusao(l)}
+  >
+    <IonIcon slot="icon-only" icon={close} />
+  </IonButton>
+</IonItem>
               ))}
             </IonList>
           </IonCardContent>
