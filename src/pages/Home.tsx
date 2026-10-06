@@ -3,7 +3,7 @@ import {
   IonPage, IonSelect, IonSelectOption, IonTitle, IonToolbar, IonIcon, IonProgressBar,
   IonCard, IonCardContent, IonCardHeader, IonCardTitle, useIonAlert, IonSearchbar,
 } from '@ionic/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { chevronBack, chevronForward, close, create, checkmarkCircle, ellipseOutline } from 'ionicons/icons';
 import { Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
@@ -75,6 +75,13 @@ const somarMes = (m: string, delta: number) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
+const somarMesesData = (d: string, delta: number) => {
+  const [ano, mm, dia] = d.split('-').map(Number);
+  const ultimoDia = new Date(ano, mm - 1 + delta + 1, 0).getDate();
+  const x = new Date(ano, mm - 1 + delta, Math.min(dia, ultimoDia));
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+};
+
 const Home: React.FC = () => {
   const [lista, setLista] = useState<Lancamento[]>(carregar);
   const [descricao, setDescricao] = useState('');
@@ -86,8 +93,10 @@ const Home: React.FC = () => {
   const [meta, setMeta] = useState(carregarMeta);
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [busca, setBusca] = useState('');
+  const [repeticoes, setRepeticoes] = useState('1');
 const [filtroTipo, setFiltroTipo] = useState('todos');
   const [mostrarAlerta] = useIonAlert();
+  const arquivoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     localStorage.setItem(CHAVE, JSON.stringify(lista));
@@ -173,10 +182,23 @@ const dadosGrafico = {
 
   if (editandoId !== null) {
     setLista(lista.map((l) => (l.id === editandoId ? { ...l, ...dados } : l)));
-  } else {
-    setLista([{ id: Date.now(), ...dados }, ...lista]);
+    } else {
+    const n = Math.min(Math.max(parseInt(repeticoes) || 1, 1), 60);
+    const novos: Lancamento[] = [];
+
+    for (let i = 0; i < n; i++) {
+      novos.push({
+        id: Date.now() + i,
+        ...dados,
+        descricao: n > 1 ? `${dados.descricao} (${i + 1}/${n})` : dados.descricao,
+        data: somarMesesData(dados.data, i),
+      });
+    }
+
+    setLista([...novos, ...lista]);
   }
   limparFormulario();
+  setRepeticoes('1');   
 };
 
   const excluir = (id: number) => {
@@ -185,6 +207,54 @@ const dadosGrafico = {
   const alternarPago = (id: number) => {
   setLista(lista.map((l) => (l.id === id ? { ...l, pago: !l.pago } : l)));
 };
+const exportar = () => {
+  const dados = { lancamentos: lista, meta, orcamentos };
+  const blob = new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `meu-caixa-backup-${hoje()}.json`;
+  link.click();
+
+  URL.revokeObjectURL(url);
+};
+const importar = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const arquivo = e.target.files?.[0];
+  if (!arquivo) return;
+
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    try {
+      const dados = JSON.parse(String(leitor.result));
+      if (!Array.isArray(dados.lancamentos)) throw new Error('formato inválido');
+
+      mostrarAlerta({
+        header: 'Importar backup?',
+        message: `Os dados atuais serão substituídos por ${dados.lancamentos.length} lançamentos do arquivo.`,
+        buttons: [
+          { text: 'Cancelar', role: 'cancel' },
+          {
+            text: 'Importar',
+            handler: () => {
+              setLista(dados.lancamentos);
+              setMeta(dados.meta || '');
+              setOrcamentos(dados.orcamentos || {});
+            },
+          },
+        ],
+      });
+    } catch {
+      mostrarAlerta({
+        header: 'Arquivo inválido',
+        message: 'Escolha um arquivo de backup do Meu Caixa.',
+        buttons: ['OK'],
+      });
+    }
+  };
+  leitor.readAsText(arquivo);
+  e.target.value = '';
+};  
 
   const confirmarExclusao = (l: Lancamento) => {
     mostrarAlerta({
@@ -440,7 +510,21 @@ const mudarOrcamento = (cat: string, texto: string) => {
               value={data}
               onIonInput={(e) => setData(e.detail.value ?? '')}
             />
-
+{editandoId === null && (
+  <>
+    <IonInput
+      label="Repetir por quantos meses?"
+      labelPlacement="floating"
+      type="number"
+      inputmode="numeric"
+      value={repeticoes}
+      onIonInput={(e) => setRepeticoes(e.detail.value ?? '')}
+    />
+    <small>
+      1 = lançamento único. Para parcelas ou contas fixas, use 2 ou mais. O valor é o de cada mês.
+    </small>
+  </>
+)}
             <IonButton expand="block" onClick={adicionar}>
   {editandoId !== null ? 'Salvar alterações' : 'Adicionar'}
 </IonButton>
@@ -525,6 +609,29 @@ const mudarOrcamento = (cat: string, texto: string) => {
             </IonList>
           </IonCardContent>
         </IonCard>
+        <IonCard>
+  <IonCardHeader>
+    <IonCardTitle>Backup dos dados</IonCardTitle>
+  </IonCardHeader>
+  <IonCardContent>
+    <p>Seus dados ficam só neste navegador. Exporte um arquivo para guardar uma cópia.</p>
+
+    <IonButton expand="block" onClick={exportar}>
+      Exportar backup
+    </IonButton>
+    <IonButton expand="block" fill="outline" onClick={() => arquivoRef.current?.click()}>
+      Importar backup
+    </IonButton>
+
+    <input
+      ref={arquivoRef}
+      type="file"
+      accept=".json,application/json"
+      style={{ display: 'none' }}
+      onChange={importar}
+    />
+  </IonCardContent>
+</IonCard>
       </IonContent>
     </IonPage>
   );
