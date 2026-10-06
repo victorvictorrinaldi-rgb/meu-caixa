@@ -42,6 +42,19 @@ const carregarOrcamentos = (): Record<string, string> => {
   const texto = localStorage.getItem(CHAVE_ORC);
   return texto ? JSON.parse(texto) : {};
 };
+type Objetivo = {
+  id: number;
+  nome: string;
+  alvo: number;
+  guardado: number;
+};
+
+const CHAVE_OBJ = 'meu-caixa-objetivos';
+
+const carregarObjetivos = (): Objetivo[] => {
+  const texto = localStorage.getItem(CHAVE_OBJ);
+  return texto ? JSON.parse(texto) : [];
+};
 
 const nomes: Record<string, string> = {
   'renda-fixa': 'Renda fixa',
@@ -94,6 +107,9 @@ const Home: React.FC = () => {
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [busca, setBusca] = useState('');
   const [repeticoes, setRepeticoes] = useState('1');
+  const [objetivos, setObjetivos] = useState<Objetivo[]>(carregarObjetivos);
+const [nomeObj, setNomeObj] = useState('');
+const [alvoObj, setAlvoObj] = useState('');
 const [filtroTipo, setFiltroTipo] = useState('todos');
   const [mostrarAlerta] = useIonAlert();
   const arquivoRef = useRef<HTMLInputElement>(null);
@@ -112,6 +128,9 @@ const [filtroTipo, setFiltroTipo] = useState('todos');
   localStorage.setItem(CHAVE_ORC, JSON.stringify(orcamentos));
 }, [orcamentos]);
 
+useEffect(() => {
+  localStorage.setItem(CHAVE_OBJ, JSON.stringify(objetivos));
+}, [objetivos]);
   const doMes = lista.filter((l) => (l.data || '').startsWith(mes));
 
   const receitas = doMes
@@ -206,6 +225,52 @@ const dadosGrafico = {
   };
   const alternarPago = (id: number) => {
   setLista(lista.map((l) => (l.id === id ? { ...l, pago: !l.pago } : l)));
+};
+const criarObjetivo = () => {
+  const alvo = parseFloat(alvoObj.replace(',', '.'));
+  if (nomeObj.trim() === '' || !(alvo > 0)) return;
+
+  setObjetivos([...objetivos, { id: Date.now(), nome: nomeObj.trim(), alvo, guardado: 0 }]);
+  setNomeObj('');
+  setAlvoObj('');
+};
+
+const guardarNoObjetivo = (o: Objetivo) => {
+  mostrarAlerta({
+    header: `Guardar em "${o.nome}"`,
+    message: 'Digite um valor negativo para retirar.',
+    inputs: [{ name: 'valor', type: 'text', placeholder: 'Valor (R$)' }],
+    buttons: [
+      { text: 'Cancelar', role: 'cancel' },
+      {
+        text: 'Confirmar',
+        handler: (dados) => {
+          const v = parseFloat(String(dados.valor).replace(',', '.'));
+          if (isNaN(v) || v === 0) return;
+          setObjetivos(
+            objetivos.map((x) =>
+              x.id === o.id ? { ...x, guardado: Math.max(x.guardado + v, 0) } : x
+            )
+          );
+        },
+      },
+    ],
+  });
+};
+
+const excluirObjetivo = (o: Objetivo) => {
+  mostrarAlerta({
+    header: 'Excluir meta?',
+    message: `"${o.nome}" será removida.`,
+    buttons: [
+      { text: 'Cancelar', role: 'cancel' },
+      {
+        text: 'Excluir',
+        role: 'destructive',
+        handler: () => setObjetivos(objetivos.filter((x) => x.id !== o.id)),
+      },
+    ],
+  });
 };
 const exportar = () => {
   const dados = { lancamentos: lista, meta, orcamentos };
@@ -609,6 +674,65 @@ const mudarOrcamento = (cat: string, texto: string) => {
             </IonList>
           </IonCardContent>
         </IonCard>
+        <IonCard>
+  <IonCardHeader>
+    <IonCardTitle>Metas de poupança</IonCardTitle>
+  </IonCardHeader>
+  <IonCardContent>
+    {objetivos.length === 0 && <p>Nenhuma meta ainda. Crie a primeira abaixo.</p>}
+
+    {objetivos.map((o) => {
+      const prog = o.guardado / o.alvo;
+
+      return (
+        <div key={o.id} style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <strong>{o.nome}</strong>
+            <span>
+              {formatar(o.guardado)} de {formatar(o.alvo)}
+            </span>
+          </div>
+
+          <IonProgressBar value={Math.min(prog, 1)} color={prog >= 1 ? 'success' : 'primary'} />
+
+          <small>
+            {prog >= 1
+              ? 'Meta alcançada!'
+              : `Faltam ${formatar(o.alvo - o.guardado)} (${Math.round(prog * 100)}%)`}
+          </small>
+
+          <div>
+            <IonButton size="small" onClick={() => guardarNoObjetivo(o)}>
+              Guardar valor
+            </IonButton>
+            <IonButton size="small" fill="clear" color="medium" onClick={() => excluirObjetivo(o)}>
+              Excluir
+            </IonButton>
+          </div>
+        </div>
+      );
+    })}
+
+    <IonInput
+      label="Nome da meta"
+      labelPlacement="floating"
+      fill="outline"
+      value={nomeObj}
+      onIonInput={(e) => setNomeObj(e.detail.value ?? '')}
+    />
+    <IonInput
+      label="Valor da meta (R$)"
+      labelPlacement="floating"
+      fill="outline"
+      inputmode="decimal"
+      value={alvoObj}
+      onIonInput={(e) => setAlvoObj(e.detail.value ?? '')}
+    />
+    <IonButton expand="block" fill="outline" onClick={criarObjetivo}>
+      Criar meta
+    </IonButton>
+  </IonCardContent>
+</IonCard>
         <IonCard>
   <IonCardHeader>
     <IonCardTitle>Backup dos dados</IonCardTitle>
